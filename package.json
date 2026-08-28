@@ -1,0 +1,58 @@
+{
+    "name": "movie-cut-tile-generator",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "remix vite:dev",
+        "build": "remix vite:build && cp -r dist/client/* dist/ && rm -rf dist/client dist/server",
+        "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint . --fix && stylelint 'app/**/*.scss' --fix",
+        "preview": "sirv dist --single --host 0.0.0.0 --port 10420",
+        "typecheck": "tsc"
+    },
+    "packageManager": "npm@10.9.2",
+    "dependencies": {
+        "@heroui/react": "2.7.11",
+        "@preact/signals-react": "3.10.2",
+        "@remix-run/node": "2.17.5",
+        "@remix-run/react": "2.17.5",
+        "framer-motion": "^11.11.17",
+        "react": "18.3.1",
+        "react-dom": "18.3.1"
+    },
+    "devDependencies": {
+        "@babel/core": "^7.29.0",
+        "@babel/preset-react": "^7.28.5",
+        "@babel/preset-typescript": "^7.28.5",
+        "@iconify-icon/react": "^3.0.0",
+        "@preact/signals-react-transform": "0.8.1",
+        "@remix-run/dev": "2.17.5",
+        "@stylistic/stylelint-plugin": "^5.0.0",
+        "@types/node": "20.19.0",
+        "@types/react": "^18.3.0",
+        "@types/react-dom": "^18.3.0",
+        "@typescript-eslint/eslint-plugin": "^7.18.0",
+        "@typescript-eslint/parser": "^7.18.0",
+        "autoprefixer": "^10.4.20",
+        "eslint": "^8.47.0",
+        "eslint-import-resolver-typescript": "^3.6.1",
+        "eslint-plugin-import": "^2.29.1",
+        "eslint-plugin-jsx-a11y": "^6.8.0",
+        "eslint-plugin-react": "^7.33.2",
+        "eslint-plugin-react-hooks": "^4.6.0",
+        "eslint-plugin-unused-imports": "^3.2.0",
+        "postcss": "^8.5.10",
+        "postcss-scss": "^4.0.9",
+        "sass": "1.77.6",
+        "sirv-cli": "^3.0.1",
+        "stylelint": "^17.0.0",
+        "stylelint-scss": "^7.0.0",
+        "tailwindcss": "^3.4.15",
+        "typescript": "~5.5.4",
+        "vite": "^6.4.2",
+        "vite-plugin-babel": "^1.6.0",
+        "vite-tsconfig-paths": "^4.3.1"
+    },
+    "engines": {
+        "node": ">=20.19.0"
+    }
+}
