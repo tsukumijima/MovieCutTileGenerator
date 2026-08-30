@@ -5,6 +5,8 @@ import type { AnalysisResult, FramePlan, OutputFormat } from '~/types';
 
 const MAX_CANVAS_WIDTH = 7680;
 const MAX_CANVAS_HEIGHT = 4320;
+const MOBILE_MAX_CANVAS_SIZE = 4096;
+const MOBILE_MAX_CANVAS_PIXELS = 10_000_000;
 const CUT_COLORS = ['#65E68A', '#FFE176', '#FFAC72', '#FF8FB8', '#CF9CFF', '#86B7FF', '#6FE0E6', '#76E6A2'];
 
 export type RenderedTile = {
@@ -56,6 +58,52 @@ function encodePNG(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /**
+ * 動画デコーダーを再初期化するまで指定時間待つ。
+ * @param milliseconds 待機時間 (ミリ秒)
+ * @returns 待機終了時に解決する Promise
+ */
+function wait(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+/**
+ * 出力用動画を読み込み、モバイルブラウザでの一時的なデコーダー確保失敗を再試行する。
+ * @param video 読み込みに使う動画要素
+ * @param sourceURL 元動画ファイルの Blob URL
+ * @returns 動画寸法を利用できる状態で解決する Promise
+ */
+async function loadVideoWithRetry(video: HTMLVideoElement, sourceURL: string): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        video.src = sourceURL;
+        video.load();
+        try {
+            await waitForVideoData(video, '出力用フレームを読み込めませんでした。');
+            return;
+        } catch (error) {
+            lastError = error;
+            video.removeAttribute('src');
+            video.load();
+            if (attempt < 2) {
+                await wait(400 * (attempt + 1));
+            }
+        }
+    }
+    throw lastError;
+}
+
+/**
+ * 端末の Canvas 容量に合わせた最大寸法と総画素数を返す。
+ * @returns 出力 Canvas に適用する最大幅、最大高さ、最大画素数
+ */
+function getCanvasLimits(): { height: number; pixels: number; width: number } {
+    const isPhoneOrTablet = navigator.maxTouchPoints > 0 && Math.min(screen.width, screen.height) < 900;
+    return isPhoneOrTablet
+        ? { height: MOBILE_MAX_CANVAS_SIZE, pixels: MOBILE_MAX_CANVAS_PIXELS, width: MOBILE_MAX_CANVAS_SIZE }
+        : { height: MAX_CANVAS_HEIGHT, pixels: MAX_CANVAS_WIDTH * MAX_CANVAS_HEIGHT, width: MAX_CANVAS_WIDTH };
+}
+
+/**
  * 秒数を常にミリ秒まで揃えたタイムスタンプへ変換する。
  * @param seconds 動画先頭からの秒数
  * @returns 01:23:45.569 形式の時刻
@@ -90,36 +138,38 @@ export async function renderTileImage(
     const frameAspectRatio = result.sourceWidth / result.sourceHeight;
     const columns = plan.columns;
     const rows = plan.rows;
-    const maximumCellWidth = Math.min(result.sourceWidth, Math.floor(MAX_CANVAS_WIDTH / columns));
     const captionRatio = 0.15;
-    const maximumCellWidthFromHeight = Math.floor(MAX_CANVAS_HEIGHT / rows / (1 / frameAspectRatio + captionRatio));
-    const cellWidth = Math.max(80, Math.min(maximumCellWidth, maximumCellWidthFromHeight));
+    const canvasLimits = getCanvasLimits();
+    const maximumCellWidth = Math.min(result.sourceWidth, Math.floor(canvasLimits.width / columns));
+    const maximumCellWidthFromHeight = Math.floor(canvasLimits.height / rows / (1 / frameAspectRatio + captionRatio));
+    const maximumCellWidthFromPixels = Math.floor(Math.sqrt(canvasLimits.pixels / (columns * rows * (1 / frameAspectRatio + captionRatio))));
+    const cellWidth = Math.max(80, Math.min(maximumCellWidth, maximumCellWidthFromHeight, maximumCellWidthFromPixels));
     const frameHeight = Math.round(cellWidth / frameAspectRatio);
     const captionHeight = Math.max(20, Math.round(cellWidth * captionRatio));
     const cellHeight = frameHeight + captionHeight;
     const contentWidth = cellWidth * columns;
     const contentHeight = cellHeight * rows;
-    const canvas = document.createElement('canvas');
-
-    // 16:9 は列数選択の目標として扱い、キャンバス寸法を実際に使うセル範囲と一致させる
-    canvas.width = contentWidth;
-    canvas.height = contentHeight;
-    const context = canvas.getContext('2d');
-    if (context === null) {
-        throw new Error('出力画像用のキャンバスを作成できませんでした。');
-    }
-
-    context.fillStyle = '#000000';
-    context.fillRect(0, 0, canvas.width, canvas.height);
     const sourceURL = URL.createObjectURL(file);
     const video = document.createElement('video');
     video.muted = true;
     video.preload = 'auto';
-    video.src = sourceURL;
 
     try {
-        await waitForVideoData(video, '出力用フレームを読み込めませんでした。');
+        // Android では解析用デコーダーの解放直後に次の動画要素が失敗することがあるため、出力用デコーダーを先に確保して再試行する
+        await loadVideoWithRetry(video, sourceURL);
         await document.fonts.load(`600 ${Math.max(13, Math.round(captionHeight * 0.32))}px "Open Sans"`);
+        const canvas = document.createElement('canvas');
+
+        // 16:9 は列数選択の目標として扱い、キャンバス寸法を実際に使うセル範囲と一致させる
+        canvas.width = contentWidth;
+        canvas.height = contentHeight;
+        const context = canvas.getContext('2d');
+        if (context === null) {
+            throw new Error('出力画像用のキャンバスを作成できませんでした。');
+        }
+
+        context.fillStyle = '#000000';
+        context.fillRect(0, 0, canvas.width, canvas.height);
 
         for (let frameIndex = 0; frameIndex < plan.frames.length; frameIndex += 1) {
             const frame = plan.frames[frameIndex];

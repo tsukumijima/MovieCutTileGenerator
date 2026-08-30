@@ -393,7 +393,7 @@ export default function Index() {
                                     ) : (
                                         <div className="w-full max-w-md px-6 text-center">
                                             <Spinner color="primary" size="lg" />
-                                            <p className="mt-4 text-sm text-white">{selectedJob === null ? '動画を選択してください' : getStatusLabel(selectedJob.status)}</p>
+                                            <p className="mt-4 text-sm text-white">{selectedJob === null ? '動画を選択してください' : `${getStatusLabel(selectedJob.status)} ${Math.round(selectedJob.progress * 100)}%`}</p>
                                             {selectedJob !== null && <Progress aria-label="処理の進捗" color="primary" value={selectedJob.progress * 100} className="mt-5" />}
                                         </div>
                                     )}
@@ -436,7 +436,7 @@ export default function Index() {
                                 {jobs.value.map((job) => (
                                     <div key={job.id} className={`rounded-xl border p-3 transition ${selectedJobID.value === job.id ? 'border-lime/60 bg-lime/[0.05]' : 'border-line bg-ink/35'}`}>
                                         <button type="button" className="w-full text-left" onClick={() => { selectedJobID.value = job.id; }}>
-                                            <div className="flex items-start justify-between gap-3"><p className="min-w-0 flex-1 truncate text-xs font-semibold text-white">{job.file.name}</p><span className={`text-[10px] ${job.status === 'error' ? 'text-danger-300' : job.status === 'complete' ? 'text-lime' : 'text-muted'}`}>{getStatusLabel(job.status)}</span></div>
+                                            <div className="flex items-start justify-between gap-3"><p className="min-w-0 flex-1 truncate text-xs font-semibold text-white">{job.file.name}</p><span className={`shrink-0 text-[10px] ${job.status === 'error' ? 'text-danger-300' : job.status === 'complete' ? 'text-lime' : 'text-muted'}`}>{getStatusLabel(job.status)}{job.status === 'analyzing' || job.status === 'rendering' ? ` ${Math.round(job.progress * 100)}%` : ''}</span></div>
                                             <p className="mt-1 text-[10px] text-muted">{formatFileSize(job.file.size)}{job.analysis !== null ? `・${job.analysis.cutCount}カット・${formatDuration(job.analysis.duration)}` : ''}</p>
                                             {(job.status === 'queued' || job.status === 'analyzing' || job.status === 'rendering') && <Progress aria-label={`${job.file.name} の進捗`} size="sm" color="primary" value={job.progress * 100} className="mt-3" />}
                                         </button>
@@ -449,7 +449,7 @@ export default function Index() {
                                 ))}
                             </div>
                             <div className="mt-5 border-t border-line pt-4">
-                                <dl className="space-y-2 text-xs"><div className="flex justify-between"><dt className="text-muted">形式</dt><dd>{outputFormat.value.toUpperCase()}</dd></div><div className="flex justify-between"><dt className="text-muted">最大解像度</dt><dd>7680 × 4320</dd></div><div className="flex justify-between"><dt className="text-muted">カット色</dt><dd className="flex gap-1">{CUT_COLORS.map((color) => <span key={color} className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />)}</dd></div></dl>
+                                <dl className="space-y-2 text-xs"><div className="flex justify-between"><dt className="text-muted">形式</dt><dd>{outputFormat.value.toUpperCase()}</dd></div><div className="flex justify-between"><dt className="text-muted">最大解像度</dt><dd>端末に合わせて最大8K</dd></div><div className="flex justify-between"><dt className="text-muted">カット色</dt><dd className="flex gap-1">{CUT_COLORS.map((color) => <span key={color} className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />)}</dd></div></dl>
                             </div>
                         </aside>
                     </div>
