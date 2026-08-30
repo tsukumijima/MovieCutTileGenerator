@@ -87,7 +87,17 @@ export default function Index() {
      * @returns ブラウザのデコーダーを再利用する動画要素
      */
     const getReusableVideo = (): HTMLVideoElement => {
-        reusableVideoRef.current ??= document.createElement('video');
+        if (reusableVideoRef.current === null) {
+            const video = document.createElement('video');
+            video.playsInline = true;
+            video.style.position = 'fixed';
+            video.style.width = '1px';
+            video.style.height = '1px';
+            video.style.opacity = '0';
+            video.style.pointerEvents = 'none';
+            document.body.append(video);
+            reusableVideoRef.current = video;
+        }
         return reusableVideoRef.current;
     };
 
@@ -262,6 +272,7 @@ export default function Index() {
         if (reusableVideoRef.current !== null) {
             reusableVideoRef.current.removeAttribute('src');
             reusableVideoRef.current.load();
+            reusableVideoRef.current.remove();
             reusableVideoRef.current = null;
         }
     }, [jobs]);

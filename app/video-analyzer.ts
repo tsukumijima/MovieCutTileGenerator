@@ -9,12 +9,71 @@ const ADAPTIVE_WINDOW = 3;
 const ADAPTIVE_RATIO = 3.0;
 const MIN_CUT_SCORE = 0.16;
 const MIN_CUT_DURATION = 0.7;
+const MAX_ANALYSIS_PLAYBACK_RATE = 6;
 
 type HSVFrame = {
     hue: Uint8Array;
     luminance: Uint8Array;
     saturation: Uint8Array;
 };
+
+/**
+ * 解析サンプルの局所変化量からカット境界とカット内の動き量を組み立てる。
+ * @param samples 時刻順に並んだ解析サンプル
+ * @param duration 動画全体の長さ (秒)
+ * @param sourceWidth 回転を反映した動画の横幅
+ * @param sourceHeight 回転を反映した動画の高さ
+ * @returns 動画寸法、解析サンプル、カット範囲
+ */
+function buildAnalysisResult(
+    samples: AnalysisSample[],
+    duration: number,
+    sourceWidth: number,
+    sourceHeight: number,
+): AnalysisResult {
+    // 局所的に動き続ける区間では平均スコアも上がるため、突出した変化だけを境界として採用する
+    const cutStartIndexes = [0];
+    let previousCutTime = 0;
+    for (let sampleIndex = ADAPTIVE_WINDOW; sampleIndex < samples.length - ADAPTIVE_WINDOW; sampleIndex += 1) {
+        let surroundingTotal = 0;
+        for (let offset = -ADAPTIVE_WINDOW; offset <= ADAPTIVE_WINDOW; offset += 1) {
+            if (offset !== 0) {
+                surroundingTotal += samples[sampleIndex + offset].change;
+            }
+        }
+        const surroundingAverage = surroundingTotal / (ADAPTIVE_WINDOW * 2);
+        const adaptiveRatio = samples[sampleIndex].change / Math.max(surroundingAverage, 0.0001);
+        const hasMinimumLength = samples[sampleIndex].time - previousCutTime >= MIN_CUT_DURATION;
+
+        if (samples[sampleIndex].change >= MIN_CUT_SCORE && adaptiveRatio >= ADAPTIVE_RATIO && hasMinimumLength) {
+            cutStartIndexes.push(sampleIndex);
+            previousCutTime = samples[sampleIndex].time;
+        }
+    }
+
+    const cuts: AnalyzedCut[] = cutStartIndexes.map((startIndex, cutIndex) => {
+        const endIndex = cutStartIndexes[cutIndex + 1] ?? samples.length;
+        const cutSamples = samples.slice(startIndex, endIndex);
+        const cutDuration = cutSamples.at(-1)!.time - cutSamples[0].time;
+        const averageMotion = cutSamples.reduce((total, sample) => total + sample.motion, 0) / cutSamples.length;
+        return {
+            averageMotion,
+            duration: cutDuration,
+            endIndex,
+            isStatic: averageMotion < 0.018 && cutDuration >= 0.8,
+            startIndex,
+        };
+    });
+
+    return {
+        cuts,
+        cutCount: cuts.length,
+        duration,
+        samples,
+        sourceHeight,
+        sourceWidth,
+    };
+}
 
 /**
  * 最初のフレームがデコードされ、動画寸法を利用できる状態まで待つ。
@@ -153,6 +212,143 @@ function compareFrames(current: HSVFrame, previous: HSVFrame): { change: number;
 }
 
 /**
+ * 動画を高速で連続再生し、指定間隔を通過したフレームを順番に解析へ渡す。
+ * @param video 読み込み済みで文書へ接続された動画要素
+ * @param duration 動画全体の長さ (秒)
+ * @param sampleInterval 解析フレームを受け取る間隔 (秒)
+ * @param onFrame 解析対象のフレーム時刻を受け取るコールバック
+ * @returns 動画末尾までの連続走査が完了したときに解決する Promise
+ */
+async function scanVideoSequentially(
+    video: HTMLVideoElement,
+    duration: number,
+    sampleInterval: number,
+    onFrame: (time: number) => void,
+): Promise<void> {
+    if (typeof video.requestVideoFrameCallback !== 'function' || video.isConnected === false) {
+        throw new Error('連続フレーム走査を利用できません。');
+    }
+
+    video.currentTime = 0;
+    video.playbackRate = Math.min(MAX_ANALYSIS_PLAYBACK_RATE, Math.max(1, sampleInterval * 50));
+
+    await new Promise<void>((resolve, reject) => {
+        let callbackID: number | null = null;
+        let nextSampleTime = 0;
+
+        const cleanup = () => {
+            if (callbackID !== null) {
+                video.cancelVideoFrameCallback(callbackID);
+            }
+            video.removeEventListener('ended', handleEnded);
+            video.removeEventListener('error', handleError);
+        };
+        const handleEnded = () => {
+            cleanup();
+            resolve();
+        };
+        const handleError = () => {
+            cleanup();
+            reject(new Error('動画の連続フレームを読み込めませんでした。'));
+        };
+        const handleFrame: VideoFrameRequestCallback = (_now, metadata) => {
+            if (metadata.mediaTime + 0.0001 >= nextSampleTime) {
+                onFrame(Math.min(metadata.mediaTime, duration - 0.001));
+                while (nextSampleTime <= metadata.mediaTime) {
+                    nextSampleTime += sampleInterval;
+                }
+            }
+            callbackID = video.requestVideoFrameCallback(handleFrame);
+        };
+
+        video.addEventListener('ended', handleEnded, { once: true });
+        video.addEventListener('error', handleError, { once: true });
+        callbackID = video.requestVideoFrameCallback(handleFrame);
+        video.play().catch((error: unknown) => {
+            cleanup();
+            reject(error);
+        });
+    });
+}
+
+/**
+ * WebCodecs のデコーダーで指定時刻の縮小フレームを先読みし、再生時計を待たずに解析する。
+ * @param file ブラウザで読み込む動画ファイル
+ * @param onProgress 解析進捗を受け取るコールバック
+ * @returns 対応環境での解析結果、利用できない場合は null
+ */
+async function analyzeVideoWithWebCodecs(
+    file: File,
+    onProgress: (progress: number) => void,
+): Promise<AnalysisResult | null> {
+    if (isSecureContext === false || typeof VideoDecoder !== 'function') {
+        return null;
+    }
+
+    const { ALL_FORMATS, BlobSource, CanvasSink, Input } = await import('mediabunny');
+    const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
+    try {
+        const videoTrack = await input.getPrimaryVideoTrack();
+        if (videoTrack === null || await videoTrack.canDecode() === false) {
+            return null;
+        }
+
+        const firstTimestamp = Math.max(0, await videoTrack.getFirstTimestamp());
+        const endTimestamp = await videoTrack.computeDuration();
+        const duration = endTimestamp - firstTimestamp;
+        const sourceWidth = await videoTrack.getDisplayWidth();
+        const sourceHeight = await videoTrack.getDisplayHeight();
+        if (Number.isFinite(duration) === false || duration <= 0 || sourceWidth <= 0 || sourceHeight <= 0) {
+            return null;
+        }
+
+        const sampleInterval = Math.max(MIN_SAMPLE_INTERVAL, duration / MAX_ANALYSIS_SAMPLES);
+        const sampleCount = Math.max(2, Math.ceil(duration / sampleInterval));
+        const timestamps = Array.from(
+            { length: sampleCount },
+            (_value, sampleIndex) => firstTimestamp + Math.min(sampleIndex * sampleInterval, duration - 0.001),
+        );
+        const sink = new CanvasSink(videoTrack, {
+            height: ANALYSIS_HEIGHT,
+            poolSize: 2,
+            width: ANALYSIS_WIDTH,
+        });
+        const analysisCanvas = document.createElement('canvas');
+        analysisCanvas.width = ANALYSIS_WIDTH;
+        analysisCanvas.height = ANALYSIS_HEIGHT;
+        const analysisContext = analysisCanvas.getContext('2d', { willReadFrequently: true });
+        if (analysisContext === null) {
+            throw new Error('画像解析用のキャンバスを作成できませんでした。');
+        }
+
+        const samples: AnalysisSample[] = [];
+        let previousFrame: HSVFrame | null = null;
+        for await (const wrappedCanvas of sink.canvasesAtTimestamps(timestamps)) {
+            if (wrappedCanvas === null) {
+                throw new Error('WebCodecs で解析フレームを読み込めませんでした。');
+            }
+            analysisContext.drawImage(wrappedCanvas.canvas, 0, 0, ANALYSIS_WIDTH, ANALYSIS_HEIGHT);
+            const currentFrame = convertToHSV(analysisContext.getImageData(0, 0, ANALYSIS_WIDTH, ANALYSIS_HEIGHT));
+            const comparison = previousFrame === null
+                ? { change: 0, motion: 0 }
+                : compareFrames(currentFrame, previousFrame);
+            samples.push({ time: wrappedCanvas.timestamp - firstTimestamp, ...comparison });
+            previousFrame = currentFrame;
+            onProgress(samples.length / sampleCount * 0.72);
+        }
+
+        if (samples.length < 2) {
+            throw new Error('WebCodecs で十分な解析フレームを読み込めませんでした。');
+        }
+
+        onProgress(0.75);
+        return buildAnalysisResult(samples, duration, sourceWidth, sourceHeight);
+    } finally {
+        input.dispose();
+    }
+}
+
+/**
  * 動画を縮小走査し、適応閾値でカット境界とカット内の動き量を求める。
  * @param file ブラウザで読み込む動画ファイル
  * @param onProgress 解析進捗を受け取るコールバック
@@ -164,6 +360,15 @@ export async function analyzeVideo(
     onProgress: (progress: number) => void,
     reusableVideo?: HTMLVideoElement,
 ): Promise<AnalysisResult> {
+    try {
+        const webCodecsResult = await analyzeVideoWithWebCodecs(file, onProgress);
+        if (webCodecsResult !== null) {
+            return webCodecsResult;
+        }
+    } catch {
+        // コンテナやコーデックが WebCodecs 経路に対応しない場合も HTMLVideoElement で処理を継続する
+    }
+
     const sourceURL = URL.createObjectURL(file);
     const video = reusableVideo ?? document.createElement('video');
     video.muted = true;
@@ -191,9 +396,7 @@ export async function analyzeVideo(
         const samples: AnalysisSample[] = [];
         let previousFrame: HSVFrame | null = null;
 
-        for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-            const time = Math.min(sampleIndex * sampleInterval, video.duration - 0.001);
-            await seekVideo(video, time);
+        const captureFrame = (time: number) => {
             analysisContext.drawImage(video, 0, 0, ANALYSIS_WIDTH, ANALYSIS_HEIGHT);
             const currentFrame = convertToHSV(analysisContext.getImageData(0, 0, ANALYSIS_WIDTH, ANALYSIS_HEIGHT));
             const comparison = previousFrame === null
@@ -201,54 +404,30 @@ export async function analyzeVideo(
                 : compareFrames(currentFrame, previousFrame);
             samples.push({ time, ...comparison });
             previousFrame = currentFrame;
-            onProgress((sampleIndex + 1) / sampleCount * 0.72);
-        }
+            onProgress(Math.min(time / video.duration, 1) * 0.72);
+        };
 
-        // 局所的に動き続ける区間では平均スコアも上がるため、突出した変化だけを境界として採用する
-        const cutStartIndexes = [0];
-        let previousCutTime = 0;
-        for (let sampleIndex = ADAPTIVE_WINDOW; sampleIndex < samples.length - ADAPTIVE_WINDOW; sampleIndex += 1) {
-            let surroundingTotal = 0;
-            for (let offset = -ADAPTIVE_WINDOW; offset <= ADAPTIVE_WINDOW; offset += 1) {
-                if (offset !== 0) {
-                    surroundingTotal += samples[sampleIndex + offset].change;
-                }
-            }
-            const surroundingAverage = surroundingTotal / (ADAPTIVE_WINDOW * 2);
-            const adaptiveRatio = samples[sampleIndex].change / Math.max(surroundingAverage, 0.0001);
-            const hasMinimumLength = samples[sampleIndex].time - previousCutTime >= MIN_CUT_DURATION;
-
-            if (samples[sampleIndex].change >= MIN_CUT_SCORE && adaptiveRatio >= ADAPTIVE_RATIO && hasMinimumLength) {
-                cutStartIndexes.push(sampleIndex);
-                previousCutTime = samples[sampleIndex].time;
+        try {
+            // 連続デコードは各時刻へのランダムシークより動画デコーダーの通常経路を効率良く利用できる
+            await scanVideoSequentially(video, video.duration, sampleInterval, captureFrame);
+        } catch {
+            // 自動再生やフレームコールバックを利用できないブラウザでは互換性を優先して個別シークへ戻す
+            video.pause();
+            video.playbackRate = 1;
+            samples.length = 0;
+            previousFrame = null;
+            for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+                const time = Math.min(sampleIndex * sampleInterval, video.duration - 0.001);
+                await seekVideo(video, time);
+                captureFrame(time);
             }
         }
-
-        const cuts: AnalyzedCut[] = cutStartIndexes.map((startIndex, cutIndex) => {
-            const endIndex = cutStartIndexes[cutIndex + 1] ?? samples.length;
-            const range = { startIndex, endIndex };
-            const cutSamples = samples.slice(range.startIndex, range.endIndex);
-            const duration = cutSamples.at(-1)!.time - cutSamples[0].time;
-            const averageMotion = cutSamples.reduce((total, sample) => total + sample.motion, 0) / cutSamples.length;
-            return {
-                averageMotion,
-                duration,
-                endIndex,
-                isStatic: averageMotion < 0.018 && duration >= 0.8,
-                startIndex,
-            };
-        });
 
         onProgress(0.75);
-        return {
-            cuts,
-            cutCount: cuts.length,
-            duration: video.duration,
-            samples,
-            sourceHeight: video.videoHeight,
-            sourceWidth: video.videoWidth,
-        };
+        return buildAnalysisResult(samples, video.duration, video.videoWidth, video.videoHeight);
     } finally {
+        video.pause();
+        video.playbackRate = 1;
         video.removeAttribute('src');
         video.load();
         URL.revokeObjectURL(sourceURL);
