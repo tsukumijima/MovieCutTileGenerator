@@ -29,7 +29,29 @@ type VideoJob = {
     targetCount: number;
 };
 
+type WritableDirectoryHandle = {
+    getFileHandle: (name: string, options: { create: true }) => Promise<WritableFileHandle>;
+};
+
+type WritableFileHandle = {
+    createWritable: () => Promise<WritableFileStream>;
+};
+
+type WritableFileStream = {
+    close: () => Promise<void>;
+    write: (data: Blob) => Promise<void>;
+};
+
+type DirectoryPickerWindow = Window & {
+    showDirectoryPicker?: (options: {
+        id: string;
+        mode: 'readwrite';
+        startIn: 'downloads';
+    }) => Promise<WritableDirectoryHandle>;
+};
+
 const CUT_COLORS = ['#65E68A', '#FFE176', '#FFAC72', '#FF8FB8', '#CF9CFF', '#86B7FF'];
+const DOWNLOAD_BATCH_SIZE = 10;
 
 function formatFileSize(bytes: number): string {
     if (bytes < 1024 * 1024) {
@@ -78,6 +100,8 @@ export default function Index() {
     const jpegQuality = useSignal(0.92);
     const isDragging = useSignal(false);
     const isBatchRegenerating = useSignal(false);
+    const isBatchSaving = useSignal(false);
+    const batchDownloadOffset = useSignal(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const reusableVideoRef = useRef<HTMLVideoElement | null>(null);
     const processingQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -132,6 +156,7 @@ export default function Index() {
                 renderedTile: tile,
                 status: 'complete',
             });
+            batchDownloadOffset.value = 0;
         } catch (error) {
             console.error('Failed to render video tiles.', error);
             updateJob(jobID, {
@@ -199,6 +224,7 @@ export default function Index() {
             targetCount: 1,
         }));
         jobs.value = [...jobs.value, ...newJobs];
+        batchDownloadOffset.value = 0;
         selectedJobID.value ??= newJobs[0].id;
         for (const job of newJobs) {
             processingQueueRef.current = processingQueueRef.current.then(() => processJob(job.id));
@@ -211,6 +237,7 @@ export default function Index() {
             URL.revokeObjectURL(job.previewURL);
         }
         jobs.value = jobs.value.filter((candidate) => candidate.id !== jobID);
+        batchDownloadOffset.value = 0;
         if (selectedJobID.value === jobID) {
             selectedJobID.value = jobs.value[0]?.id ?? null;
         }
@@ -256,11 +283,64 @@ export default function Index() {
         }
     };
 
-    const downloadAll = () => {
+    const downloadAll = async () => {
         const completedJobs = jobs.peek().filter((job) => job.renderedTile !== null);
-        for (const job of completedJobs) {
+        const showDirectoryPicker = (window as DirectoryPickerWindow).showDirectoryPicker;
+
+        // 保存先フォルダーへ直接書き込める環境では、自動ダウンロードの件数制限を受けずに全ファイルを保存する
+        if (showDirectoryPicker !== undefined) {
+            isBatchSaving.value = true;
+            try {
+                const directoryHandle = await showDirectoryPicker({
+                    id: 'movie-cut-tiles',
+                    mode: 'readwrite',
+                    startIn: 'downloads',
+                });
+                const usedNames = new Set<string>();
+                for (const job of completedJobs) {
+                    const renderedTile = job.renderedTile;
+                    if (renderedTile === null) {
+                        continue;
+                    }
+                    const originalName = getDownloadName(job.file, renderedTile.format);
+                    const extensionIndex = originalName.lastIndexOf('.');
+                    const stem = originalName.slice(0, extensionIndex);
+                    const extension = originalName.slice(extensionIndex);
+                    let downloadName = originalName;
+                    let duplicateIndex = 2;
+                    // 別フォルダーから同名動画を追加した場合も、連番を付けて生成画像を上書きせず残す
+                    while (usedNames.has(downloadName)) {
+                        downloadName = `${stem} (${duplicateIndex})${extension}`;
+                        duplicateIndex += 1;
+                    }
+                    usedNames.add(downloadName);
+
+                    // 各 Blob を独立したファイルとして書き込み、アーカイブ展開なしで利用できる状態にする
+                    const fileHandle = await directoryHandle.getFileHandle(downloadName, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(renderedTile.blob);
+                    await writable.close();
+                }
+                batchDownloadOffset.value = 0;
+                return;
+            } catch (error) {
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                    return;
+                }
+                console.error('Failed to save all generated images to a directory.', error);
+                // フォルダーへの書き込みだけが失敗した場合も、通常ダウンロードの分割保存で処理を継続する
+            } finally {
+                isBatchSaving.value = false;
+            }
+        }
+
+        // フォルダー選択に非対応のブラウザでは、ユーザー操作ごとに Chromium の上限内で続きを保存する
+        const startIndex = Math.min(batchDownloadOffset.peek(), completedJobs.length);
+        const endIndex = Math.min(startIndex + DOWNLOAD_BATCH_SIZE, completedJobs.length);
+        for (const job of completedJobs.slice(startIndex, endIndex)) {
             downloadJob(job);
         }
+        batchDownloadOffset.value = endIndex < completedJobs.length ? endIndex : 0;
     };
 
     useEffect(() => () => {
@@ -279,6 +359,8 @@ export default function Index() {
 
     const selectedJob = jobs.value.find((job) => job.id === selectedJobID.value) ?? null;
     const completedCount = jobs.value.filter((job) => job.renderedTile !== null).length;
+    const remainingDownloadCount = Math.max(0, completedCount - batchDownloadOffset.value);
+    const batchSaveLabel = batchDownloadOffset.value > 0 ? `残り${remainingDownloadCount}件を保存` : 'すべて保存';
     const isAnyProcessing = jobs.value.some((job) => job.status === 'analyzing' || job.status === 'queued' || job.status === 'rendering');
     const isSelectedCurrent = selectedJob?.renderedTile !== null
         && selectedJob?.renderedTile !== undefined
@@ -384,7 +466,7 @@ export default function Index() {
                             {jobs.value.length > 0 && (
                                 <div className="flex gap-2">
                                     <Button variant="bordered" className="border-line" isDisabled={isAnyProcessing} isLoading={isBatchRegenerating.value} onPress={() => { void regenerateAll(); }}>全件再生成</Button>
-                                    <Button color="primary" isDisabled={completedCount === 0 || hasStaleOutputs || isAnyProcessing} startContent={<Icon icon="solar:download-minimalistic-linear" width="18" />} onPress={downloadAll}>すべて保存</Button>
+                                    <Button color="primary" isDisabled={completedCount === 0 || hasStaleOutputs || isAnyProcessing} isLoading={isBatchSaving.value} startContent={<Icon icon="solar:download-minimalistic-linear" width="18" />} onPress={() => { void downloadAll(); }}>{batchSaveLabel}</Button>
                                 </div>
                             )}
                         </div>
@@ -488,7 +570,7 @@ export default function Index() {
             {jobs.value.length > 0 && (
                 <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between border-t border-line bg-panel/95 px-4 py-3 backdrop-blur lg:hidden">
                     <span className="text-xs text-muted">{completedCount}/{jobs.value.length}件完了</span>
-                    <div className="flex gap-2"><Button size="sm" variant="bordered" className="border-line" onPress={() => fileInputRef.current?.click()}>動画を追加</Button><Button size="sm" color="primary" isDisabled={completedCount === 0 || hasStaleOutputs || isAnyProcessing} onPress={downloadAll}>すべて保存</Button></div>
+                    <div className="flex gap-2"><Button size="sm" variant="bordered" className="border-line" onPress={() => fileInputRef.current?.click()}>動画を追加</Button><Button size="sm" color="primary" isDisabled={completedCount === 0 || hasStaleOutputs || isAnyProcessing} isLoading={isBatchSaving.value} onPress={() => { void downloadAll(); }}>{batchSaveLabel}</Button></div>
                 </div>
             )}
         </main>
