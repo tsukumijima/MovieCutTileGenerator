@@ -125,6 +125,7 @@ function formatTimestamp(seconds: number): string {
  * @param format 出力画像の形式
  * @param jpegQuality JPEG の画質
  * @param onProgress 生成進捗を受け取るコールバック
+ * @param reusableVideo 複数ファイル間でデコーダーを使い回す動画要素
  * @returns プレビューと保存に使う画像データと配置情報
  */
 export async function renderTileImage(
@@ -134,6 +135,7 @@ export async function renderTileImage(
     format: OutputFormat,
     jpegQuality: number,
     onProgress: (progress: number) => void,
+    reusableVideo?: HTMLVideoElement,
 ): Promise<RenderedTile> {
     const frameAspectRatio = result.sourceWidth / result.sourceHeight;
     const columns = plan.columns;
@@ -150,7 +152,7 @@ export async function renderTileImage(
     const contentWidth = cellWidth * columns;
     const contentHeight = cellHeight * rows;
     const sourceURL = URL.createObjectURL(file);
-    const video = document.createElement('video');
+    const video = reusableVideo ?? document.createElement('video');
     video.muted = true;
     video.preload = 'auto';
 

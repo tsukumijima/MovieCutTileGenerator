@@ -74,12 +74,22 @@ function getStatusLabel(status: JobStatus): string {
 export default function Index() {
     const jobs = useSignal<VideoJob[]>([]);
     const selectedJobID = useSignal<string | null>(null);
-    const outputFormat = useSignal<OutputFormat>('png');
+    const outputFormat = useSignal<OutputFormat>('jpeg');
     const jpegQuality = useSignal(0.92);
     const isDragging = useSignal(false);
     const isBatchRegenerating = useSignal(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const reusableVideoRef = useRef<HTMLVideoElement | null>(null);
     const processingQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+    /**
+     * すべての解析と描画で共有する動画要素を返す。
+     * @returns ブラウザのデコーダーを再利用する動画要素
+     */
+    const getReusableVideo = (): HTMLVideoElement => {
+        reusableVideoRef.current ??= document.createElement('video');
+        return reusableVideoRef.current;
+    };
 
     const updateJob = (jobID: string, update: Partial<VideoJob>) => {
         jobs.value = jobs.value.map((job) => job.id === jobID ? { ...job, ...update } : job);
@@ -97,7 +107,7 @@ export default function Index() {
         try {
             const tile = await renderTileImage(job.file, job.analysis, job.plan, format, quality, (nextProgress) => {
                 updateJob(jobID, { progress: nextProgress });
-            });
+            }, getReusableVideo());
             const currentJob = jobs.peek().find((candidate) => candidate.id === jobID);
             if (currentJob === undefined) {
                 return;
@@ -130,7 +140,7 @@ export default function Index() {
         try {
             const analysis = await analyzeVideo(job.file, (nextProgress) => {
                 updateJob(jobID, { progress: nextProgress });
-            });
+            }, getReusableVideo());
             if (jobs.peek().some((candidate) => candidate.id === jobID) === false) {
                 return;
             }
@@ -157,7 +167,8 @@ export default function Index() {
     };
 
     const addFiles = (files: File[]) => {
-        const videoFiles = files.filter((file) => file.type.startsWith('video/'));
+        // OS が MIME タイプを渡さない動画も、選択画面に明示した拡張子なら処理対象へ含める
+        const videoFiles = files.filter((file) => file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name));
         if (videoFiles.length === 0) {
             return;
         }
@@ -167,7 +178,7 @@ export default function Index() {
             error: '',
             file,
             frameMode: 'auto',
-            id: crypto.randomUUID(),
+            id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
             plan: null,
             planRevision: 0,
             previewURL: null,
@@ -217,14 +228,16 @@ export default function Index() {
         });
     };
 
-    const regenerateAll = async () => {
+    const regenerateAll = () => {
         isBatchRegenerating.value = true;
-        for (const job of jobs.peek()) {
-            if (job.analysis !== null && job.plan !== null) {
-                await renderJob(job.id, job);
+        processingQueueRef.current = processingQueueRef.current.then(async () => {
+            for (const job of jobs.peek()) {
+                if (job.analysis !== null && job.plan !== null) {
+                    await renderJob(job.id, job);
+                }
             }
-        }
-        isBatchRegenerating.value = false;
+            isBatchRegenerating.value = false;
+        });
     };
 
     const downloadJob = (job: VideoJob) => {
@@ -245,6 +258,11 @@ export default function Index() {
             if (job.previewURL !== null) {
                 URL.revokeObjectURL(job.previewURL);
             }
+        }
+        if (reusableVideoRef.current !== null) {
+            reusableVideoRef.current.removeAttribute('src');
+            reusableVideoRef.current.load();
+            reusableVideoRef.current = null;
         }
     }, [jobs]);
 
@@ -424,15 +442,15 @@ export default function Index() {
                                     </div>
                                     <div className="mt-5 flex flex-col gap-4 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs"><span><span className="text-muted">代表フレーム </span>{selectedJob.plan.frames.length}枚</span><span><span className="text-muted">配置 </span>{selectedJob.plan.columns}列×{selectedJob.plan.rows}段</span><span><span className="text-muted">カット </span>{selectedJob.analysis.cutCount}</span></div>
-                                        <Button color="primary" isDisabled={isSelectedCurrent} isLoading={selectedJob.status === 'rendering'} startContent={<Icon icon="solar:refresh-linear" width="18" />} onPress={() => { void renderJob(selectedJob.id); }}>この設定で再生成</Button>
+                                        <Button color="primary" isDisabled={isSelectedCurrent} isLoading={selectedJob.status === 'rendering'} startContent={<Icon icon="solar:refresh-linear" width="18" />} onPress={() => { processingQueueRef.current = processingQueueRef.current.then(() => renderJob(selectedJob.id)); }}>この設定で再生成</Button>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        <aside className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+                        <aside className="rounded-2xl border border-line bg-panel p-4 sm:p-5 lg:sticky lg:top-6 lg:self-start">
                             <div className="flex items-center justify-between"><div><p className="text-[11px] font-semibold tracking-[0.14em] text-muted">VIDEOS</p><p className="mt-1 text-sm text-white">{completedCount}/{jobs.value.length}件完了</p></div><Button isIconOnly size="sm" variant="light" aria-label="動画を追加" onPress={() => fileInputRef.current?.click()}><Icon icon="solar:add-circle-linear" width="22" /></Button></div>
-                            <div className="mt-4 space-y-3">
+                            <div className="mt-4 space-y-3 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto lg:pr-1">
                                 {jobs.value.map((job) => (
                                     <div key={job.id} className={`rounded-xl border p-3 transition ${selectedJobID.value === job.id ? 'border-lime/60 bg-lime/[0.05]' : 'border-line bg-ink/35'}`}>
                                         <button type="button" className="w-full text-left" onClick={() => { selectedJobID.value = job.id; }}>

@@ -156,11 +156,16 @@ function compareFrames(current: HSVFrame, previous: HSVFrame): { change: number;
  * 動画を縮小走査し、適応閾値でカット境界とカット内の動き量を求める。
  * @param file ブラウザで読み込む動画ファイル
  * @param onProgress 解析進捗を受け取るコールバック
+ * @param reusableVideo 複数ファイル間でデコーダーを使い回す動画要素
  * @returns 動画寸法、解析サンプル、カット範囲
  */
-export async function analyzeVideo(file: File, onProgress: (progress: number) => void): Promise<AnalysisResult> {
+export async function analyzeVideo(
+    file: File,
+    onProgress: (progress: number) => void,
+    reusableVideo?: HTMLVideoElement,
+): Promise<AnalysisResult> {
     const sourceURL = URL.createObjectURL(file);
-    const video = document.createElement('video');
+    const video = reusableVideo ?? document.createElement('video');
     video.muted = true;
     video.preload = 'auto';
     video.src = sourceURL;
