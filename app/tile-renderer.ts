@@ -1,54 +1,58 @@
 import { seekVideo, waitForVideoData } from '~/video-analyzer';
 
-import type { AnalysisResult } from '~/types';
+import type { AnalysisResult, FramePlan, OutputFormat } from '~/types';
 
 
 const MAX_CANVAS_WIDTH = 7680;
 const MAX_CANVAS_HEIGHT = 4320;
-const TARGET_ASPECT_RATIO = 16 / 9;
 const CUT_COLORS = ['#65E68A', '#FFE176', '#FFAC72', '#FF8FB8', '#CF9CFF', '#86B7FF', '#6FE0E6', '#76E6A2'];
 
 export type RenderedTile = {
     blob: Blob;
-    canvas: HTMLCanvasElement;
     columns: number;
+    format: OutputFormat;
+    frameCount: number;
     height: number;
+    jpegQuality: number | null;
     rows: number;
     width: number;
 };
 
-export type TileLayout = {
-    columns: number;
-};
+function encodeJPEG(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob === null) {
+                reject(new Error('JPEG 画像を生成できませんでした。'));
+                return;
+            }
+            resolve(blob);
+        }, 'image/jpeg', quality);
+    });
+}
 
-/**
- * 動画の縦横比と空きセル数から 16:9 に近い初期グリッドを選ぶ。
- * @param result 解析済みの代表フレームと動画寸法
- * @returns 自動選択した列数
- */
-export function chooseTileLayout(result: AnalysisResult): TileLayout {
-    if (result.sourceWidth <= 0 || result.sourceHeight <= 0) {
-        throw new Error('動画の縦横サイズを取得できませんでした。');
+function encodePNG(canvas: HTMLCanvasElement): Promise<Blob> {
+    const context = canvas.getContext('2d');
+    if (context === null) {
+        return Promise.reject(new Error('PNG 圧縮用の画素を取得できませんでした。'));
     }
-    const frameAspectRatio = result.sourceWidth / result.sourceHeight;
-    const cellAspectRatio = 1 / (1 / frameAspectRatio + 0.15);
-    let bestColumns = 1;
-    let smallestLayoutError = Number.POSITIVE_INFINITY;
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    const worker = new Worker(new URL('./png-encoder.worker.ts', import.meta.url), { type: 'module' });
 
-    // 縦動画と横動画を同じ評価軸へ載せ、16:9 への近さと空きセルの少なさを両立する
-    for (let columns = 1; columns <= result.frames.length; columns += 1) {
-        const rows = Math.ceil(result.frames.length / columns);
-        const canvasAspectRatio = columns * cellAspectRatio / rows;
-        const aspectError = Math.abs(Math.log(canvasAspectRatio / TARGET_ASPECT_RATIO));
-        const unusedCellRatio = (columns * rows - result.frames.length) / (columns * rows);
-        const layoutError = aspectError + unusedCellRatio;
-        if (layoutError < smallestLayoutError) {
-            smallestLayoutError = layoutError;
-            bestColumns = columns;
-        }
-    }
-
-    return { columns: bestColumns };
+    return new Promise((resolve, reject) => {
+        worker.addEventListener('message', (event: MessageEvent<ArrayBuffer>) => {
+            worker.terminate();
+            resolve(new Blob([event.data], { type: 'image/png' }));
+        }, { once: true });
+        worker.addEventListener('error', () => {
+            worker.terminate();
+            reject(new Error('PNG 画像を圧縮できませんでした。'));
+        }, { once: true });
+        worker.postMessage({
+            height: canvas.height,
+            pixels: imageData.data.buffer,
+            width: canvas.width,
+        }, [imageData.data.buffer]);
+    });
 }
 
 /**
@@ -69,19 +73,23 @@ function formatTimestamp(seconds: number): string {
  * 代表フレームを元解像度から再取得し、長辺最大 8K のタイル画像へ描画する。
  * @param file 元動画ファイル
  * @param result 低解像度解析で選ばれた代表フレーム
- * @param layout 描画に使う列数
+ * @param plan 描画する代表フレームと完成グリッド
+ * @param format 出力画像の形式
+ * @param jpegQuality JPEG の画質
  * @param onProgress 生成進捗を受け取るコールバック
- * @returns プレビュー用キャンバスと PNG データ
+ * @returns プレビューと保存に使う画像データと配置情報
  */
 export async function renderTileImage(
     file: File,
     result: AnalysisResult,
-    layout: TileLayout,
+    plan: FramePlan,
+    format: OutputFormat,
+    jpegQuality: number,
     onProgress: (progress: number) => void,
 ): Promise<RenderedTile> {
     const frameAspectRatio = result.sourceWidth / result.sourceHeight;
-    const columns = Math.max(1, Math.min(layout.columns, result.frames.length));
-    const rows = Math.ceil(result.frames.length / columns);
+    const columns = plan.columns;
+    const rows = plan.rows;
     const maximumCellWidth = Math.min(result.sourceWidth, Math.floor(MAX_CANVAS_WIDTH / columns));
     const captionRatio = 0.15;
     const maximumCellWidthFromHeight = Math.floor(MAX_CANVAS_HEIGHT / rows / (1 / frameAspectRatio + captionRatio));
@@ -113,8 +121,8 @@ export async function renderTileImage(
         await waitForVideoData(video, '出力用フレームを読み込めませんでした。');
         await document.fonts.load(`600 ${Math.max(13, Math.round(captionHeight * 0.32))}px "Open Sans"`);
 
-        for (let frameIndex = 0; frameIndex < result.frames.length; frameIndex += 1) {
-            const frame = result.frames[frameIndex];
+        for (let frameIndex = 0; frameIndex < plan.frames.length; frameIndex += 1) {
+            const frame = plan.frames[frameIndex];
             const column = frameIndex % columns;
             const row = Math.floor(frameIndex / columns);
             const left = column * cellWidth;
@@ -129,12 +137,12 @@ export async function renderTileImage(
             context.textAlign = 'right';
             context.textBaseline = 'middle';
             context.fillText(formatTimestamp(frame.time), left + cellWidth - captionHeight * 0.28, top + frameHeight + captionHeight / 2);
-            onProgress(0.75 + (frameIndex + 1) / result.frames.length * 0.23);
+            onProgress(0.75 + (frameIndex + 1) / plan.frames.length * 0.2);
         }
 
         // 同じカットが折り返す場合は行ごとに枠を分割し、左右端の開放で連続性を示す
         for (let cutIndex = 0; cutIndex < result.cutCount; cutIndex += 1) {
-            const frameIndexes = result.frames
+            const frameIndexes = plan.frames
                 .map((frame, frameIndex) => frame.cutIndex === cutIndex ? frameIndex : -1)
                 .filter((frameIndex) => frameIndex >= 0);
             if (frameIndexes.length === 0) {
@@ -197,17 +205,19 @@ export async function renderTileImage(
             }
         }
 
-        const blob = await new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob((generatedBlob) => {
-                if (generatedBlob === null) {
-                    reject(new Error('PNG 画像を生成できませんでした。'));
-                    return;
-                }
-                resolve(generatedBlob);
-            }, 'image/png');
-        });
+        onProgress(0.96);
+        const blob = format === 'png' ? await encodePNG(canvas) : await encodeJPEG(canvas, jpegQuality);
         onProgress(1);
-        return { blob, canvas, columns, height: canvas.height, rows, width: canvas.width };
+        return {
+            blob,
+            columns,
+            format,
+            frameCount: plan.frames.length,
+            height: canvas.height,
+            jpegQuality: format === 'jpeg' ? jpegQuality : null,
+            rows,
+            width: canvas.width,
+        };
     } finally {
         video.removeAttribute('src');
         video.load();

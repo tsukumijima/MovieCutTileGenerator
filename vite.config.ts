@@ -5,6 +5,9 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 
 
 export default defineConfig({
+    resolve: {
+        dedupe: ['react', 'react-dom'],
+    },
     build: {
         // HeroUI を含む単一ページのため、依存関係をまとめたチャンクの警告閾値を緩和する
         chunkSizeWarningLimit: 3 * 1024,

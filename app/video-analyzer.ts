@@ -1,4 +1,4 @@
-import type { AnalysisResult, AnalysisSample, SelectedFrame } from '~/types';
+import type { AnalysisResult, AnalysisSample, AnalyzedCut } from '~/types';
 
 
 const ANALYSIS_WIDTH = 160;
@@ -14,11 +14,6 @@ type HSVFrame = {
     hue: Uint8Array;
     luminance: Uint8Array;
     saturation: Uint8Array;
-};
-
-type CutRange = {
-    endIndex: number;
-    startIndex: number;
 };
 
 /**
@@ -158,10 +153,10 @@ function compareFrames(current: HSVFrame, previous: HSVFrame): { change: number;
 }
 
 /**
- * 動画を縮小走査し、適応閾値でカットを分けて代表フレームを選ぶ。
+ * 動画を縮小走査し、適応閾値でカット境界とカット内の動き量を求める。
  * @param file ブラウザで読み込む動画ファイル
  * @param onProgress 解析進捗を受け取るコールバック
- * @returns カット番号と時刻を含む代表フレーム一覧
+ * @returns 動画寸法、解析サンプル、カット範囲
  */
 export async function analyzeVideo(file: File, onProgress: (progress: number) => void): Promise<AnalysisResult> {
     const sourceURL = URL.createObjectURL(file);
@@ -224,43 +219,27 @@ export async function analyzeVideo(file: File, onProgress: (progress: number) =>
             }
         }
 
-        const cutRanges: CutRange[] = cutStartIndexes.map((startIndex, cutIndex) => ({
-            startIndex,
-            endIndex: cutStartIndexes[cutIndex + 1] ?? samples.length,
-        }));
-        const frames: SelectedFrame[] = [];
-
-        for (let cutIndex = 0; cutIndex < cutRanges.length; cutIndex += 1) {
-            const range = cutRanges[cutIndex];
+        const cuts: AnalyzedCut[] = cutStartIndexes.map((startIndex, cutIndex) => {
+            const endIndex = cutStartIndexes[cutIndex + 1] ?? samples.length;
+            const range = { startIndex, endIndex };
             const cutSamples = samples.slice(range.startIndex, range.endIndex);
             const duration = cutSamples.at(-1)!.time - cutSamples[0].time;
             const averageMotion = cutSamples.reduce((total, sample) => total + sample.motion, 0) / cutSamples.length;
-            const firstSafeIndex = Math.min(range.startIndex + 1, range.endIndex - 1);
-
-            // ほぼ静止した FIX 構図は中央の1枚で表し、それ以外は最低2枚から動き量に応じて密度を上げる
-            if (averageMotion < 0.018 && duration >= 0.8) {
-                const middleIndex = Math.floor((range.startIndex + range.endIndex - 1) / 2);
-                frames.push({ cutIndex, time: samples[middleIndex].time });
-                continue;
-            }
-
-            const targetInterval = averageMotion >= 0.15 ? 0.5 : averageMotion >= 0.07 ? 0.75 : 1.1;
-            const targetCount = Math.max(2, Math.min(12, Math.ceil(duration / targetInterval) + 1));
-            for (let frameIndex = 0; frameIndex < targetCount; frameIndex += 1) {
-                const ratio = targetCount === 1 ? 0.5 : frameIndex / (targetCount - 1);
-                const sampleIndex = Math.round(firstSafeIndex + (range.endIndex - 1 - firstSafeIndex) * ratio);
-                const time = samples[sampleIndex].time;
-                if (frames.at(-1)?.time !== time) {
-                    frames.push({ cutIndex, time });
-                }
-            }
-        }
+            return {
+                averageMotion,
+                duration,
+                endIndex,
+                isStatic: averageMotion < 0.018 && duration >= 0.8,
+                startIndex,
+            };
+        });
 
         onProgress(0.75);
         return {
-            cutCount: cutRanges.length,
+            cuts,
+            cutCount: cuts.length,
             duration: video.duration,
-            frames,
+            samples,
             sourceHeight: video.videoHeight,
             sourceWidth: video.videoWidth,
         };
