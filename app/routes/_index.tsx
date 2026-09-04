@@ -456,14 +456,10 @@ export default function Index() {
                                         </Button>
                                     ))}
                                 </div>
-                                {outputFormat.value === 'jpeg' ? (
-                                    <div className="mt-2">
-                                        <p className="mb-1 text-[10px] text-muted">画質 {Math.round(jpegQuality.value * 100)}%</p>
-                                        <Slider className="w-full" aria-label="JPEG 画質" color="primary" minValue={0.7} maxValue={1} step={0.01} value={jpegQuality.value} onChange={(value) => { jpegQuality.value = Array.isArray(value) ? value[0] : value; }} />
-                                    </div>
-                                ) : (
-                                    <p className="mt-2 text-[10px] text-muted">可逆・最高圧縮</p>
-                                )}
+                                <div className="mt-2">
+                                    <p className="mb-1 text-[10px] text-muted">画質 {Math.round(jpegQuality.value * 100)}%</p>
+                                    <Slider className="w-full" aria-label="JPEG 画質" color="primary" isDisabled={outputFormat.value === 'png'} minValue={0.7} maxValue={1} step={0.01} value={jpegQuality.value} onChange={(value) => { jpegQuality.value = Array.isArray(value) ? value[0] : value; }} />
+                                </div>
                             </div>
                             {jobs.value.length > 0 && (
                                 <div className="flex gap-2">
