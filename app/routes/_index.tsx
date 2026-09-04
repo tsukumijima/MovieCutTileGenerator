@@ -440,29 +440,31 @@ export default function Index() {
                         />
 
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-end xl:w-auto">
-                            <div>
+                            <div className="w-full sm:w-80">
                                 <p className="mb-2 text-[11px] font-semibold tracking-[0.12em] text-muted">OUTPUT FORMAT</p>
-                                <div className="flex rounded-xl border border-line bg-ink p-1">
+                                <div className="flex w-full rounded-xl border border-line bg-ink p-1">
                                     {(['png', 'jpeg'] as const).map((format) => (
                                         <Button
                                             key={format}
                                             size="sm"
                                             variant={outputFormat.value === format ? 'solid' : 'light'}
                                             color={outputFormat.value === format ? 'primary' : 'default'}
-                                            className="min-w-20"
+                                            className="min-w-0 flex-1"
                                             onPress={() => { outputFormat.value = format; }}
                                         >
                                             {format.toUpperCase()}
                                         </Button>
                                     ))}
                                 </div>
-                                <p className="mt-2 text-[10px] text-muted">{outputFormat.value === 'png' ? '可逆・最高圧縮' : `画質 ${Math.round(jpegQuality.value * 100)}%`}</p>
+                                {outputFormat.value === 'jpeg' ? (
+                                    <div className="mt-2">
+                                        <p className="mb-1 text-[10px] text-muted">画質 {Math.round(jpegQuality.value * 100)}%</p>
+                                        <Slider className="w-full" aria-label="JPEG 画質" color="primary" minValue={0.7} maxValue={1} step={0.01} value={jpegQuality.value} onChange={(value) => { jpegQuality.value = Array.isArray(value) ? value[0] : value; }} />
+                                    </div>
+                                ) : (
+                                    <p className="mt-2 text-[10px] text-muted">可逆・最高圧縮</p>
+                                )}
                             </div>
-                            {outputFormat.value === 'jpeg' && (
-                                <div className="min-w-48 pb-1">
-                                    <Slider aria-label="JPEG 画質" color="primary" minValue={0.7} maxValue={1} step={0.01} value={jpegQuality.value} onChange={(value) => { jpegQuality.value = Array.isArray(value) ? value[0] : value; }} />
-                                </div>
-                            )}
                             {jobs.value.length > 0 && (
                                 <div className="flex gap-2">
                                     <Button variant="bordered" className="border-line" isDisabled={isAnyProcessing} isLoading={isBatchRegenerating.value} onPress={() => { void regenerateAll(); }}>全件再生成</Button>
