@@ -581,12 +581,12 @@ export default function Index() {
 
             {/* 著作権表示とカウンタは折り返し時も右端へ揃え、末尾の余白で固定ツールバーの上までスクロールできる */}
             <footer className="mx-auto mt-10 flex max-w-[1500px] flex-wrap items-center justify-between gap-4 border-t border-line pt-6 text-sm leading-6 text-muted sm:text-[15px] sm:leading-7">
-                <a href="https://github.com/tsukumijima/MovieCutTileGenerator" className="inline-flex items-center gap-2 transition-colors hover:text-lime">
+                <a href="https://github.com/tsukumijima/MovieCutTileGenerator" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 transition-colors hover:text-lime">
                     <Icon icon="mdi:github" width="18" className="h-[18px] w-[18px] shrink-0" />
                     GitHub
                 </a>
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2 text-right">
-                    <span className="whitespace-nowrap">Copyright © 2019-2026 <a href="https://tools.tsukumijima.net/" className="transition-colors hover:text-lime">つくみ島道具箱</a></span>
+                    <span className="whitespace-nowrap">Copyright © 2019-2026 <a href="https://tools.tsukumijima.net/" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-lime">つくみ島道具箱</a></span>
                     <img src="https://site.tsukumijima.net/dream/dream.cgi?id=movie_cut_tile_generator" alt="アクセスカウンタ" className="h-5 w-auto" />
                 </div>
             </footer>
