@@ -1,4 +1,4 @@
-import { Button, Progress, Slider, Spinner } from '@heroui/react';
+import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, Progress, Slider, Spinner } from '@heroui/react';
 import { Icon } from '@iconify-icon/react';
 import { useSignal } from '@preact/signals-react';
 import { useEffect, useRef } from 'react';
@@ -374,7 +374,7 @@ export default function Index() {
 
     return (
         <main className="min-h-screen px-4 pb-24 pt-4 sm:px-6 sm:pt-6 lg:px-8 lg:pb-12">
-            <header className="mx-auto flex max-w-[1500px] items-center justify-between border-b border-line pb-4">
+            <header className="mx-auto grid max-w-[1500px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 border-b border-line pb-4 sm:flex">
                 <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-lime/40 bg-lime/10 text-lime">
                         <Icon icon="solar:clapperboard-edit-linear" width="22" />
@@ -384,11 +384,27 @@ export default function Index() {
                         <p className="mt-0.5 hidden text-[10px] tracking-[0.18em] text-muted sm:block">CLIENT-SIDE SHOT OVERVIEW</p>
                     </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted sm:text-xs">
+                {/* 小画面では端末内処理の説明を次の行へ置き、タイトルとメニューの操作領域を確保する */}
+                <div className="order-last col-span-2 flex shrink-0 items-center gap-2 text-[10px] text-muted sm:order-none sm:ml-auto sm:text-xs">
                     <Icon icon="solar:shield-check-linear" width="17" className="text-lime" />
-                    <span className="hidden sm:inline">動画はブラウザ内だけで処理されます</span>
-                    <span className="sm:hidden">端末内処理</span>
+                    <span>動画はブラウザ内だけで処理されます</span>
                 </div>
+                {/* 道具箱の各アプリへ通常のリンクで移動し、閉鎖したツールは無効な項目として案内する */}
+                <Dropdown placement="bottom-end" classNames={{ content: 'max-w-[calc(100vw-2rem)] border border-line bg-panel text-white' }}>
+                    <DropdownTrigger>
+                        <Button size="sm" variant="bordered" className="shrink-0 border-lime/40 text-lime" endContent={<Icon icon="solar:alt-arrow-down-linear" width="14" />}>道具箱</Button>
+                    </DropdownTrigger>
+                    <DropdownMenu aria-label="道具箱のツール" disabledKeys={['shadowban-tester', 'twittertoken-viewer']} itemClasses={{ base: 'data-[hover=true]:bg-lime/10 data-[focus=true]:bg-lime/10', title: 'whitespace-normal' }}>
+                        <DropdownItem key="home" href="https://tools.tsukumijima.net/" showDivider>ホーム</DropdownItem>
+                        <DropdownItem key="taberuze-generator" href="https://tools.tsukumijima.net/taberuze-generator/">#食べるぜニッポン！ジェネレーター</DropdownItem>
+                        <DropdownItem key="otowakka-generator" href="https://tools.tsukumijima.net/otowakka-generator/">ティーダのチンポ気持ちよすぎだろ！ジェネレーター</DropdownItem>
+                        <DropdownItem key="susurutv-generator" href="https://tools.tsukumijima.net/susurutv-generator/">やばいクレーマーのSUSURU TVジェネレーター</DropdownItem>
+                        <DropdownItem key="tvcaption-generator" href="https://tools.tsukumijima.net/tvcaption-generator/">テレビの字幕っぽいのジェネレーター</DropdownItem>
+                        <DropdownItem key="kyofu-bengoshi-generator" href="https://tools.tsukumijima.net/kyofu-bengoshi-generator/" showDivider>かなり恐怖を感じた弁護士ジェネレーター</DropdownItem>
+                        <DropdownItem key="shadowban-tester" description="閉鎖">Twitter Shadowban Test</DropdownItem>
+                        <DropdownItem key="twittertoken-viewer" description="閉鎖">Twitter API のアクセストークンを確認するやつ</DropdownItem>
+                    </DropdownMenu>
+                </Dropdown>
             </header>
 
             <section className="mx-auto mt-7 max-w-[1500px] sm:mt-9">

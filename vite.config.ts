@@ -5,6 +5,8 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 
 
 export default defineConfig({
+    // 開発時と公開時で、アセットの取得先を同じサブパスに揃える
+    base: '/movie-cut-tile-generator/',
     resolve: {
         dedupe: ['react', 'react-dom'],
     },
@@ -25,6 +27,8 @@ export default defineConfig({
     plugins: [
         remix({
             ssr: false,
+            // 画面のルーティングにもアセットと同じ基準パスを使う
+            basename: '/movie-cut-tile-generator/',
             buildDirectory: 'dist',
             ignoredRouteFiles: ['**/.*', '**/*.scss', '**/*.css'],
         }),

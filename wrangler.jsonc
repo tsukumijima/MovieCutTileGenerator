@@ -1,0 +1,11 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "movie-cut-tile-generator",
+    "compatibility_date": "2026-09-05",
+    // 公開 URL と同じ階層に置いた HTML とアセットを配信する
+    "assets": {
+        "directory": "./dist",
+        "html_handling": "auto-trailing-slash",
+        "not_found_handling": "none"
+    }
+}

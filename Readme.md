@@ -22,14 +22,27 @@
 
 ### ローカルで動かす
 
-Node.js 20.19.0 以降が必要です。
+Node.js 22 以降が必要です。
 
 ```bash
 npm install
 npm run dev
 ```
 
-起動後、[http://localhost:8080](http://localhost:8080) を開きます。
+起動後、[http://localhost:8080/movie-cut-tile-generator/](http://localhost:8080/movie-cut-tile-generator/) を開きます。
+
+### ビルドとプレビュー
+
+```bash
+npm run build
+npm run preview
+```
+
+Cloudflare Workers の静的配信をローカルで起動します。  
+開発時と同じ URL で、ビルドしたアプリを確認できます。
+
+ビルド成果物は `dist/movie-cut-tile-generator/` に出力され、`dist/` を Workers Static Assets へ配置します。  
+公開先は [Movie Cut Tile Generator](https://tools.tsukumijima.net/movie-cut-tile-generator/) です。
 
 ### ライセンス
 

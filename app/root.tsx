@@ -13,6 +13,7 @@ export const meta: MetaFunction = () => [
 
 export const links = () => [
     { rel: 'stylesheet', href: styles },
+    { rel: 'canonical', href: 'https://tools.tsukumijima.net/movie-cut-tile-generator/' },
 ];
 
 export function HydrateFallback() {
