@@ -250,14 +250,16 @@ export default function Index() {
         }
         const frameMode = update.frameMode ?? job.frameMode;
         const targetCount = update.targetCount ?? job.targetCount;
-        const columns = update.columns ?? job.columns;
+        // 枚数やモードを切り替えたときも、列数をスライダーの範囲内に揃える
+        const columnLimit = Math.max(job.analysis.cutCount, frameMode === 'auto' ? getAutomaticFrameCount(job.analysis) : targetCount);
+        const columns = Math.max(1, Math.min(update.columns ?? job.columns, columnLimit));
         const plan = createFramePlan(job.analysis, {
             columns,
             mode: frameMode,
             targetCount,
         });
         updateJob(job.id, {
-            columns,
+            columns: plan.columns,
             frameMode,
             plan,
             planRevision: job.planRevision + 1,
@@ -358,6 +360,11 @@ export default function Index() {
     }, [jobs]);
 
     const selectedJob = jobs.value.find((job) => job.id === selectedJobID.value) ?? null;
+    const selectedFrameCount = selectedJob?.analysis
+        ? selectedJob.frameMode === 'auto' ? getAutomaticFrameCount(selectedJob.analysis) : selectedJob.targetCount
+        : 1;
+    // 列数によって増減する再配分後の枚数を除き、ドラッグ中の目盛りを一定に保つ
+    const selectedColumnLimit = Math.max(1, selectedJob?.analysis?.cutCount ?? 1, selectedFrameCount);
     const completedCount = jobs.value.filter((job) => job.renderedTile !== null).length;
     const remainingDownloadCount = Math.max(0, completedCount - batchDownloadOffset.value);
     const batchSaveLabel = batchDownloadOffset.value > 0 ? `残り${remainingDownloadCount}件を保存` : 'すべて保存';
@@ -525,24 +532,23 @@ export default function Index() {
 
                             {selectedJob?.analysis !== null && selectedJob?.analysis !== undefined && selectedJob.plan !== null && (
                                 <div className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
-                                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
-                                        <div className="flex-1">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div><p className="text-sm font-semibold text-white">フレーム量</p><p className="mt-1 text-[11px] text-muted">完成グリッドの空き枠は、情報量の多いカットへ再配分します。</p></div>
-                                                <div className="flex rounded-lg border border-line bg-ink p-1">
-                                                    <Button size="sm" color={selectedJob.frameMode === 'auto' ? 'primary' : 'default'} variant={selectedJob.frameMode === 'auto' ? 'solid' : 'light'} onPress={() => updateSelectedPlan({ frameMode: 'auto' })}>自動</Button>
-                                                    <Button size="sm" color={selectedJob.frameMode === 'fixed' ? 'primary' : 'default'} variant={selectedJob.frameMode === 'fixed' ? 'solid' : 'light'} onPress={() => updateSelectedPlan({ frameMode: 'fixed' })}>枚数指定</Button>
-                                                </div>
+                                    <div className="flex flex-col gap-5">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div><p className="text-sm font-semibold text-white">フレーム量</p><p className="mt-1 text-[11px] text-muted">枚数を目安に、横のタイル数に合わせて代表フレームを再配分します。</p></div>
+                                            <div className="flex shrink-0 rounded-lg border border-line bg-ink p-1">
+                                                <Button size="sm" color={selectedJob.frameMode === 'auto' ? 'primary' : 'default'} variant={selectedJob.frameMode === 'auto' ? 'solid' : 'light'} onPress={() => updateSelectedPlan({ frameMode: 'auto' })}>自動</Button>
+                                                <Button size="sm" color={selectedJob.frameMode === 'fixed' ? 'primary' : 'default'} variant={selectedJob.frameMode === 'fixed' ? 'solid' : 'light'} onPress={() => updateSelectedPlan({ frameMode: 'fixed' })}>枚数指定</Button>
                                             </div>
-                                            {selectedJob.frameMode === 'fixed' && (
-                                                <div className="mt-5">
-                                                    <Slider aria-label="要約の細かさ" color="primary" minValue={selectedJob.analysis.cutCount} maxValue={getFrameCountLimit(selectedJob.analysis)} step={1} value={selectedJob.targetCount} onChange={(value) => updateSelectedPlan({ targetCount: Array.isArray(value) ? value[0] : value })} />
-                                                </div>
-                                            )}
                                         </div>
-                                        <div className="flex-1">
-                                            <div className="mb-2 flex items-center justify-between text-xs"><span className="text-muted">横のタイル数</span><span className="font-mono text-lime">{selectedJob.columns}</span></div>
-                                            <Slider aria-label="横のタイル数" color="primary" minValue={1} maxValue={Math.max(1, selectedJob.plan.frames.length)} step={1} value={selectedJob.columns} onChange={(value) => updateSelectedPlan({ columns: Array.isArray(value) ? value[0] : value })} />
+                                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-6">
+                                            <div className="min-w-0">
+                                                <Slider className="w-full" label="代表フレーム数の目安" getValue={(value) => `${value}枚${selectedJob.frameMode === 'auto' ? '（自動）' : ''}`} classNames={{ label: 'text-xs text-muted', value: 'text-xs font-mono text-lime' }} color="primary" isDisabled={selectedJob.frameMode === 'auto' || selectedJob.analysis.cutCount === getFrameCountLimit(selectedJob.analysis)} minValue={selectedJob.analysis.cutCount} maxValue={getFrameCountLimit(selectedJob.analysis)} step={1} value={selectedFrameCount} onChange={(value) => updateSelectedPlan({ targetCount: Array.isArray(value) ? value[0] : value })} />
+                                                <div className="mt-2 flex justify-between text-[11px] text-muted"><span>{selectedJob.analysis.cutCount}枚</span><span>{getFrameCountLimit(selectedJob.analysis)}枚</span></div>
+                                            </div>
+                                            <div className="min-w-0">
+                                                <Slider className="w-full" label="横のタイル数" getValue={(value) => `${value}列`} classNames={{ label: 'text-xs text-muted', value: 'text-xs font-mono text-lime' }} color="primary" isDisabled={selectedColumnLimit === 1} minValue={1} maxValue={selectedColumnLimit} step={1} value={selectedJob.columns} onChange={(value) => updateSelectedPlan({ columns: Array.isArray(value) ? value[0] : value })} />
+                                                <div className="mt-2 flex justify-between text-[11px] text-muted"><span>1列</span><span>{selectedColumnLimit}列</span></div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="mt-5 flex flex-col gap-4 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
