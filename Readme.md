@@ -44,6 +44,16 @@ Cloudflare Workers の静的配信をローカルで起動します。
 ビルド成果物は `dist/movie-cut-tile-generator/` に出力され、`dist/` を Workers Static Assets へ配置します。  
 公開先は [Movie Cut Tile Generator](https://tools.tsukumijima.net/movie-cut-tile-generator/) です。
 
+### デプロイ
+
+Cloudflare Workers の Git 連携で、[tsukumijima/MovieCutTileGenerator](https://github.com/tsukumijima/MovieCutTileGenerator) の `master` ブランチへの push 時に自動デプロイします。  
+Worker 名は `movie-cut-tile-generator` です。
+
+ビルドコマンドは `npm run build`、デプロイコマンドは `npx wrangler deploy`、ビルド環境の変数は `NODE_VERSION=22` に設定しています。
+
+本番の Route `tools.tsukumijima.net/movie-cut-tile-generator/*` は Cloudflare ダッシュボードで管理しています。  
+[workers.dev の確認用 URL](https://movie-cut-tile-generator.tsukumijima.workers.dev/movie-cut-tile-generator/) でも公開したアプリを確認できます。
+
 ### ライセンス
 
 [License.txt](./License.txt) をご覧ください。
