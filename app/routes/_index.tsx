@@ -389,20 +389,18 @@ export default function Index() {
                     <Icon icon="solar:shield-check-linear" width="17" className="text-lime" />
                     <span>動画はブラウザ内だけで処理されます</span>
                 </div>
-                {/* 道具箱の各アプリへ通常のリンクで移動し、閉鎖したツールは無効な項目として案内する */}
+                {/* 道具箱の各アプリへ通常のリンクで移動する */}
                 <Dropdown placement="bottom-end" classNames={{ content: 'max-w-[calc(100vw-2rem)] border border-line bg-panel text-white' }}>
                     <DropdownTrigger>
                         <Button size="sm" variant="bordered" className="shrink-0 border-lime/40 text-lime" endContent={<Icon icon="solar:alt-arrow-down-linear" width="14" />}>道具箱</Button>
                     </DropdownTrigger>
-                    <DropdownMenu aria-label="道具箱のツール" disabledKeys={['shadowban-tester', 'twittertoken-viewer']} itemClasses={{ base: 'data-[hover=true]:bg-lime/10 data-[focus=true]:bg-lime/10', title: 'whitespace-normal' }}>
+                    <DropdownMenu aria-label="道具箱のツール" itemClasses={{ base: 'data-[hover=true]:bg-lime/10 data-[focus=true]:bg-lime/10', title: 'whitespace-normal' }}>
                         <DropdownItem key="home" href="https://tools.tsukumijima.net/" showDivider>ホーム</DropdownItem>
                         <DropdownItem key="taberuze-generator" href="https://tools.tsukumijima.net/taberuze-generator/">#食べるぜニッポン！ジェネレーター</DropdownItem>
                         <DropdownItem key="otowakka-generator" href="https://tools.tsukumijima.net/otowakka-generator/">ティーダのチンポ気持ちよすぎだろ！ジェネレーター</DropdownItem>
                         <DropdownItem key="susurutv-generator" href="https://tools.tsukumijima.net/susurutv-generator/">やばいクレーマーのSUSURU TVジェネレーター</DropdownItem>
                         <DropdownItem key="tvcaption-generator" href="https://tools.tsukumijima.net/tvcaption-generator/">テレビの字幕っぽいのジェネレーター</DropdownItem>
-                        <DropdownItem key="kyofu-bengoshi-generator" href="https://tools.tsukumijima.net/kyofu-bengoshi-generator/" showDivider>かなり恐怖を感じた弁護士ジェネレーター</DropdownItem>
-                        <DropdownItem key="shadowban-tester" description="閉鎖">Twitter Shadowban Test</DropdownItem>
-                        <DropdownItem key="twittertoken-viewer" description="閉鎖">Twitter API のアクセストークンを確認するやつ</DropdownItem>
+                        <DropdownItem key="kyofu-bengoshi-generator" href="https://tools.tsukumijima.net/kyofu-bengoshi-generator/">かなり恐怖を感じた弁護士ジェネレーター</DropdownItem>
                     </DropdownMenu>
                 </Dropdown>
             </header>
@@ -580,6 +578,18 @@ export default function Index() {
                     </div>
                 )}
             </section>
+
+            {/* 著作権表示とカウンタは折り返し時も右端へ揃え、末尾の余白で固定ツールバーの上までスクロールできる */}
+            <footer className="mx-auto mt-10 flex max-w-[1500px] flex-wrap items-center justify-between gap-4 border-t border-line pt-6 text-xs text-muted">
+                <a href="https://github.com/tsukumijima/MovieCutTileGenerator" className="inline-flex items-center gap-2 transition-colors hover:text-lime">
+                    <Icon icon="mdi:github" width="18" className="h-[18px] w-[18px] shrink-0" />
+                    GitHub
+                </a>
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2 text-right text-[11px]">
+                    <span className="whitespace-nowrap">Copyright © 2019-2026 <a href="https://tools.tsukumijima.net/" className="transition-colors hover:text-lime">つくみ島道具箱</a></span>
+                    <img src="https://site.tsukumijima.net/dream/dream.cgi?id=movie_cut_tile_generator" alt="アクセスカウンタ" className="h-4 w-auto" />
+                </div>
+            </footer>
 
             {jobs.value.length > 0 && (
                 <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between border-t border-line bg-panel/95 px-4 py-3 backdrop-blur lg:hidden">
